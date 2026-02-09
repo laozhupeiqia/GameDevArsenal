@@ -1,0 +1,229 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CircularLayoutGroup : MonoBehaviour
+{
+    [Header("圆形布局设置")]
+    [SerializeField, Range(0, 1000)] private float radius = 200f; // 半径
+    [SerializeField] private bool rotateToCenter = true; // 子物体是否朝向圆心
+    [SerializeField] private bool startFromTop = true; // 是否从顶部开始布局
+    [SerializeField] private float startAngle = 0f; // 起始角度（度）
+    [SerializeField] private bool clockwise = false; // 是否顺时针排列
+    [SerializeField] private bool updateInEditor = false; // 是否在编辑器模式下更新
+
+    private RectTransform rectTransform;
+    private List<RectTransform> children = new List<RectTransform>();
+
+    private void Awake()
+    {
+        rectTransform = GetComponent<RectTransform>();
+        UpdateLayout();
+    }
+
+    private void Update()
+    {
+        // 如果需要在运行时动态更新
+        if (updateInEditor && Application.isPlaying)
+        {
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// 更新布局
+    /// </summary>
+    public void UpdateLayout()
+    {
+        // 清除旧的子物体列表
+        children.Clear();
+
+        // 获取所有活动的子物体
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            Transform child = transform.GetChild(i);
+            if (child.gameObject.activeSelf)
+            {
+                RectTransform childRect = child.GetComponent<RectTransform>();
+                if (childRect != null)
+                {
+                    children.Add(childRect);
+                }
+            }
+        }
+
+        // 如果没有子物体，直接返回
+        if (children.Count == 0) return;
+
+        // 计算每个子物体之间的角度
+        float angleStep = 360f / children.Count;
+
+        // 调整起始角度（如果从顶部开始）
+        float currentStartAngle = startAngle;
+        if (startFromTop)
+        {
+            currentStartAngle = -90f;
+        }
+
+        // 设置方向
+        float direction = clockwise ? -1f : 1f;
+
+        // 排列子物体
+        for (int i = 0; i < children.Count; i++)
+        {
+            RectTransform child = children[i];
+
+            // 计算当前角度
+            float angle = currentStartAngle + direction * (i * angleStep);
+
+            // 将角度转换为弧度
+            float angleRad = angle * Mathf.Deg2Rad;
+
+            // 计算位置
+            Vector2 position = new Vector2(
+                Mathf.Cos(angleRad) * radius,
+                Mathf.Sin(angleRad) * radius
+            );
+
+            // 设置位置
+            child.anchoredPosition = position;
+
+            // 设置旋转（如果启用）
+            if (rotateToCenter)
+            {
+                // 计算朝向圆心的旋转
+                float rotationAngle = angle + 90f; // 调整旋转使物体朝向圆心
+                child.localEulerAngles = new Vector3(0, 0, rotationAngle);
+            }
+            else
+            {
+                child.localEulerAngles = Vector3.zero;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置半径
+    /// </summary>
+    public float Radius
+    {
+        get => radius;
+        set
+        {
+            radius = value;
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// 获取或设置是否朝向圆心
+    /// </summary>
+    public bool RotateToCenter
+    {
+        get => rotateToCenter;
+        set
+        {
+            rotateToCenter = value;
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// 添加子物体
+    /// </summary>
+    public void AddChild(RectTransform child)
+    {
+        if (child != null)
+        {
+            child.SetParent(rectTransform);
+            child.localScale = Vector3.one;
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// 移除子物体
+    /// </summary>
+    public void RemoveChild(RectTransform child)
+    {
+        if (child != null && child.parent == transform)
+        {
+            child.SetParent(null);
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// 移除所有子物体
+    /// </summary>
+    public void RemoveAllChildren()
+    {
+        foreach (RectTransform child in children.ToArray())
+        {
+            if (child != null)
+            {
+                Destroy(child.gameObject);
+            }
+        }
+        children.Clear();
+    }
+
+    /// <summary>
+    /// 获取子物体在圆形布局中的位置
+    /// </summary>
+    public Vector2 GetPositionAtIndex(int index)
+    {
+        if (children.Count == 0 || index < 0 || index >= children.Count)
+            return Vector2.zero;
+
+        float angleStep = 360f / children.Count;
+        float currentStartAngle = startFromTop ? -90f : startAngle;
+        float direction = clockwise ? -1f : 1f;
+
+        float angle = currentStartAngle + direction * (index * angleStep);
+        float angleRad = angle * Mathf.Deg2Rad;
+
+        return new Vector2(
+            Mathf.Cos(angleRad) * radius,
+            Mathf.Sin(angleRad) * radius
+        );
+    }
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        // 在编辑器模式下，当值改变时更新布局
+        if (updateInEditor && !Application.isPlaying)
+        {
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (this != null)
+                {
+                    UpdateLayout();
+                }
+            };
+        }
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        if (rectTransform == null)
+            rectTransform = GetComponent<RectTransform>();
+
+        // 在Scene视图中绘制圆形参考线
+        Vector3 center = rectTransform.position;
+
+        // 绘制圆心
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawSphere(center, 5f);
+
+        // 绘制圆形
+        UnityEditor.Handles.color = new Color(0, 1, 1, 0.1f);
+        UnityEditor.Handles.DrawWireDisc(center, Vector3.forward, radius);
+
+        // 绘制半径线
+        Gizmos.color = Color.yellow;
+        Vector3 radiusPoint = center + Vector3.up * radius;
+        Gizmos.DrawLine(center, radiusPoint);
+    }
+#endif
+}
