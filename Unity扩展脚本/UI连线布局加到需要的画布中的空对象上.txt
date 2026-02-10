@@ -1,0 +1,254 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+[ExecuteAlways]
+public class SimpleUILineConnector : MonoBehaviour
+{
+    public List<RectTransform> points = new List<RectTransform>();
+
+    [Header("线样式")]
+    public Sprite lineSprite;
+    public Color lineColor = Color.white;
+    public float thickness = 5f;
+
+    [Header("功能")]
+    public bool loopConnection = false;
+    public bool enableClickAddPoint = false;
+
+    [SerializeField] private RectTransform lineContainer;
+
+    private List<RectTransform> lines = new List<RectTransform>();
+
+    // ============================
+    void OnEnable()
+    {
+        EnsureContainer();
+        SetLinesActive(true);
+
+#if UNITY_EDITOR
+        SceneView.duringSceneGui += OnSceneGUI;
+#endif
+    }
+
+    void OnDisable()
+    {
+        SetLinesActive(false);
+
+#if UNITY_EDITOR
+        SceneView.duringSceneGui -= OnSceneGUI;
+#endif
+    }
+
+    void OnDestroy()
+    {
+        DestroyAllLines();
+    }
+
+    void Update()
+    {
+        if (!gameObject.activeInHierarchy) return;
+
+        EnsureContainer();
+        RemoveNullPoints();
+        CleanupDestroyedLines();
+
+        RefreshLines();
+        UpdateLinesTransform();
+    }
+
+    // ============================
+    void EnsureContainer()
+    {
+        if (lineContainer != null) return;
+
+        Transform child = transform.Find("LineContainer");
+
+        if (child != null)
+        {
+            lineContainer = child as RectTransform;
+            return;
+        }
+
+        GameObject go = new GameObject("LineContainer", typeof(RectTransform));
+        go.transform.SetParent(transform);
+
+        lineContainer = go.GetComponent<RectTransform>();
+        lineContainer.anchorMin = Vector2.zero;
+        lineContainer.anchorMax = Vector2.one;
+        lineContainer.offsetMin = Vector2.zero;
+        lineContainer.offsetMax = Vector2.zero;
+
+        lineContainer.SetSiblingIndex(0);
+    }
+
+    // ============================
+    void RemoveNullPoints()
+    {
+        points.RemoveAll(p => p == null);
+    }
+
+    void CleanupDestroyedLines()
+    {
+        lines.RemoveAll(l => l == null);
+    }
+
+    // ============================
+    void RefreshLines()
+    {
+        int need = GetLineCount();
+
+        while (lines.Count < need)
+        {
+            lines.Add(CreateLine());
+        }
+
+        while (lines.Count > need)
+        {
+            DestroyLine(lines[^1]);
+            lines.RemoveAt(lines.Count - 1);
+        }
+    }
+
+    int GetLineCount()
+    {
+        if (points.Count <= 1) return 0;
+        return loopConnection ? points.Count : points.Count - 1;
+    }
+
+    // ============================
+    RectTransform CreateLine()
+    {
+        GameObject go = new GameObject("UILine", typeof(RectTransform), typeof(Image));
+        go.transform.SetParent(lineContainer);
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.localScale = Vector3.one;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+
+        Image img = go.GetComponent<Image>();
+        img.sprite = lineSprite;
+        img.color = lineColor;
+        img.type = Image.Type.Sliced;
+
+        return rect;
+    }
+
+    // ============================
+    void UpdateLinesTransform()
+    {
+        for (int i = 0; i < lines.Count; i++)
+        {
+            if (lines[i] == null) continue;
+
+            RectTransform start = points[i];
+            RectTransform end = (i == points.Count - 1 && loopConnection)
+                ? points[0]
+                : points[i + 1];
+
+            if (start == null || end == null) continue;
+
+            RectTransform line = lines[i];
+
+            Image img = line.GetComponent<Image>();
+            if (img != null)
+            {
+                img.sprite = lineSprite;
+                img.color = lineColor;
+            }
+
+            Vector3 p1 = start.position;
+            Vector3 p2 = end.position;
+
+            Vector3 dir = p2 - p1;
+            float distance = dir.magnitude;
+
+            line.position = (p1 + p2) / 2f;
+            line.sizeDelta = new Vector2(distance, thickness);
+
+            float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+            line.rotation = Quaternion.Euler(0, 0, angle);
+        }
+    }
+
+    // ============================
+    void DestroyLine(RectTransform line)
+    {
+        if (line == null) return;
+
+        if (Application.isPlaying)
+            Destroy(line.gameObject);
+        else
+            DestroyImmediate(line.gameObject);
+    }
+
+    void DestroyAllLines()
+    {
+        foreach (var line in lines)
+        {
+            DestroyLine(line);
+        }
+        lines.Clear();
+    }
+
+    void SetLinesActive(bool active)
+    {
+        if (lineContainer != null)
+            lineContainer.gameObject.SetActive(active);
+    }
+
+#if UNITY_EDITOR
+    // ============================
+    // Scene点击添加点
+    // ============================
+    void OnSceneGUI(SceneView sceneView)
+    {
+        if (!enableClickAddPoint) return;
+
+        Event e = Event.current;
+
+        if (e.type == EventType.MouseDown && e.button == 0 && !e.alt)
+        {
+            AddPointAtMouse();
+            e.Use();
+        }
+    }
+
+    void AddPointAtMouse()
+    {
+        Canvas canvas = GetComponentInParent<Canvas>();
+        if (canvas == null) return;
+
+        Camera sceneCam = SceneView.lastActiveSceneView.camera;
+        Event e = Event.current;
+
+        Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
+
+        Plane plane = new Plane(canvas.transform.forward, canvas.transform.position);
+
+        if (plane.Raycast(ray, out float enter))
+        {
+            Vector3 worldPos = ray.GetPoint(enter);
+
+            RectTransform canvasRect = canvas.transform as RectTransform;
+
+            Vector2 localPos = canvasRect.InverseTransformPoint(worldPos);
+
+            GameObject go = new GameObject("Point", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(canvas.transform);
+
+            RectTransform rect = go.GetComponent<RectTransform>();
+            rect.anchoredPosition = localPos;
+            rect.sizeDelta = new Vector2(20, 20);
+
+            points.Add(rect);
+        }
+    }
+
+
+#endif
+}
