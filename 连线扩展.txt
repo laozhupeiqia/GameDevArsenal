@@ -1,0 +1,625 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+public enum ConnectionMode
+{
+    SceneObjects,   // 连接场景中的3D物体
+    UIObjects       // 连接UI物体
+}
+
+[ExecuteInEditMode]
+public class DynamicLineConnector : MonoBehaviour
+{
+    [Header("连接设置")]
+    [SerializeField] private ConnectionMode connectionMode = ConnectionMode.SceneObjects;
+    [SerializeField] private List<Transform> connectedObjects = new List<Transform>();
+    [SerializeField] private List<RectTransform> connectedUIObjects = new List<RectTransform>();
+    
+    [Header("线条设置")]
+    [SerializeField] private Material lineMaterial;
+    [SerializeField] private Color lineColor = Color.white;
+    [SerializeField, Range(0.01f, 1f)] private float lineWidth = 0.1f;
+    [SerializeField] private int lineSegments = 10; // 曲线分段数（仅曲线模式）
+    [SerializeField] private bool useCurve = false; // 是否使用曲线
+    [SerializeField, Range(0f, 1f)] private float curveHeight = 0.5f; // 曲线高度
+    
+    [Header("端点设置")]
+    [SerializeField] private bool showEndPoints = true;
+    [SerializeField] private GameObject startPointPrefab;
+    [SerializeField] private GameObject endPointPrefab;
+    
+    [Header("自动更新")]
+    [SerializeField] private bool updateInRealTime = true;
+    [SerializeField] private bool showInEditor = true;
+    
+    private LineRenderer lineRenderer;
+    private List<GameObject> endpointInstances = new List<GameObject>();
+    
+    #if UNITY_EDITOR
+    private Vector3[] editorPreviewPoints;
+    #endif
+
+    private void Awake()
+    {
+        InitializeLineRenderer();
+    }
+
+    private void InitializeLineRenderer()
+    {
+        lineRenderer = GetComponent<LineRenderer>();
+        if (lineRenderer == null)
+        {
+            lineRenderer = gameObject.AddComponent<LineRenderer>();
+        }
+        
+        lineRenderer.startWidth = lineWidth;
+        lineRenderer.endWidth = lineWidth;
+        lineRenderer.material = lineMaterial != null ? lineMaterial : new Material(Shader.Find("Sprites/Default"));
+        lineRenderer.startColor = lineColor;
+        lineRenderer.endColor = lineColor;
+        lineRenderer.useWorldSpace = true;
+        lineRenderer.positionCount = 0;
+        
+        // 设置合适的渲染队列
+        lineRenderer.sortingOrder = 100;
+    }
+
+    private void Update()
+    {
+        if (updateInRealTime)
+        {
+            UpdateLines();
+        }
+    }
+
+    /// <summary>
+    /// 添加3D物体
+    /// </summary>
+    public void AddObject(Transform obj)
+    {
+        if (obj != null && !connectedObjects.Contains(obj))
+        {
+            connectedObjects.Add(obj);
+            connectionMode = ConnectionMode.SceneObjects;
+            UpdateLines();
+        }
+    }
+
+    /// <summary>
+    /// 添加UI物体
+    /// </summary>
+    public void AddUIObject(RectTransform uiObj)
+    {
+        if (uiObj != null && !connectedUIObjects.Contains(uiObj))
+        {
+            connectedUIObjects.Add(uiObj);
+            connectionMode = ConnectionMode.UIObjects;
+            UpdateLines();
+        }
+    }
+
+    /// <summary>
+    /// 移除物体
+    /// </summary>
+    public void RemoveObject(Transform obj)
+    {
+        if (connectedObjects.Contains(obj))
+        {
+            connectedObjects.Remove(obj);
+            UpdateLines();
+        }
+        else if (connectionMode == ConnectionMode.UIObjects)
+        {
+            // 尝试在UI对象中查找
+            RectTransform rectTransform = obj as RectTransform;
+            if (rectTransform != null && connectedUIObjects.Contains(rectTransform))
+            {
+                connectedUIObjects.Remove(rectTransform);
+                UpdateLines();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 清空所有连接
+    /// </summary>
+    public void ClearAll()
+    {
+        connectedObjects.Clear();
+        connectedUIObjects.Clear();
+        UpdateLines();
+        ClearEndpoints();
+    }
+
+    /// <summary>
+    /// 更新所有连线
+    /// </summary>
+    public void UpdateLines()
+    {
+        if (lineRenderer == null)
+            InitializeLineRenderer();
+
+        ClearEndpoints();
+
+        switch (connectionMode)
+        {
+            case ConnectionMode.SceneObjects:
+                UpdateSceneLines();
+                break;
+            case ConnectionMode.UIObjects:
+                UpdateUILines();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 更新场景物体连线
+    /// </summary>
+    private void UpdateSceneLines()
+    {
+        if (connectedObjects.Count < 2)
+        {
+            lineRenderer.positionCount = 0;
+            return;
+        }
+
+        List<Vector3> positions = new List<Vector3>();
+        
+        for (int i = 0; i < connectedObjects.Count; i++)
+        {
+            if (connectedObjects[i] == null) continue;
+            
+            Vector3 position = connectedObjects[i].position;
+            
+            if (useCurve && connectedObjects.Count > 2 && i > 0 && i < connectedObjects.Count - 1)
+            {
+                // 为中间点添加曲线效果
+                Vector3 prevPos = connectedObjects[i-1].position;
+                Vector3 nextPos = connectedObjects[i+1].position;
+                Vector3 curvePos = CalculateCurvePosition(prevPos, position, nextPos);
+                positions.Add(curvePos);
+            }
+            else
+            {
+                positions.Add(position);
+            }
+            
+            // 创建端点（如果需要）
+            if (showEndPoints)
+            {
+                CreateEndpoint(position, i == 0, i);
+            }
+        }
+        
+        lineRenderer.positionCount = positions.Count;
+        lineRenderer.SetPositions(positions.ToArray());
+    }
+
+    /// <summary>
+    /// 更新UI物体连线
+    /// </summary>
+    private void UpdateUILines()
+    {
+        if (connectedUIObjects.Count < 2)
+        {
+            lineRenderer.positionCount = 0;
+            return;
+        }
+
+        List<Vector3> positions = new List<Vector3>();
+        Camera canvasCamera = GetCanvasCamera();
+        
+        for (int i = 0; i < connectedUIObjects.Count; i++)
+        {
+            if (connectedUIObjects[i] == null) continue;
+            
+            Vector3 position = GetUIPosition(connectedUIObjects[i], canvasCamera);
+            
+            if (useCurve && connectedUIObjects.Count > 2 && i > 0 && i < connectedUIObjects.Count - 1)
+            {
+                // 为中间点添加曲线效果
+                Vector3 prevPos = GetUIPosition(connectedUIObjects[i-1], canvasCamera);
+                Vector3 nextPos = GetUIPosition(connectedUIObjects[i+1], canvasCamera);
+                Vector3 curvePos = CalculateCurvePosition(prevPos, position, nextPos);
+                positions.Add(curvePos);
+            }
+            else
+            {
+                positions.Add(position);
+            }
+            
+            // 创建端点（如果需要）
+            if (showEndPoints)
+            {
+                CreateEndpoint(position, i == 0, i);
+            }
+        }
+        
+        lineRenderer.positionCount = positions.Count;
+        lineRenderer.SetPositions(positions.ToArray());
+    }
+
+    /// <summary>
+    /// 获取UI的世界位置
+    /// </summary>
+    private Vector3 GetUIPosition(RectTransform rectTransform, Camera canvasCamera)
+    {
+        if (rectTransform == null) return Vector3.zero;
+        
+        // 如果是世界空间UI
+        if (rectTransform.GetComponentInParent<Canvas>().renderMode == RenderMode.WorldSpace)
+        {
+            return rectTransform.position;
+        }
+        // 如果是屏幕空间UI
+        else
+        {
+            // 将UI位置转换为世界位置
+            Vector3 screenPos = RectTransformUtility.WorldToScreenPoint(canvasCamera, rectTransform.position);
+            return canvasCamera.ScreenToWorldPoint(new Vector3(screenPos.x, screenPos.y, 10f));
+        }
+    }
+
+    /// <summary>
+    /// 获取Canvas的Camera
+    /// </summary>
+    private Camera GetCanvasCamera()
+    {
+        Canvas canvas = FindObjectOfType<Canvas>();
+        if (canvas != null)
+        {
+            return canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
+        }
+        return Camera.main;
+    }
+
+    /// <summary>
+    /// 计算曲线位置
+    /// </summary>
+    private Vector3 CalculateCurvePosition(Vector3 start, Vector3 middle, Vector3 end)
+    {
+        if (!useCurve) return middle;
+        
+        Vector3 direction = (end - start).normalized;
+        Vector3 perpendicular = Vector3.Cross(direction, Vector3.up).normalized;
+        Vector3 curvePoint = middle + perpendicular * curveHeight;
+        
+        return curvePoint;
+    }
+
+    /// <summary>
+    /// 创建端点
+    /// </summary>
+    private void CreateEndpoint(Vector3 position, bool isStart, int index)
+    {
+        GameObject prefab = isStart ? startPointPrefab : endPointPrefab;
+        if (prefab == null) return;
+        
+        GameObject endpoint = Instantiate(prefab, position, Quaternion.identity, transform);
+        endpoint.name = $"Endpoint_{index}_{(isStart ? "Start" : "End")}";
+        endpointInstances.Add(endpoint);
+    }
+
+    /// <summary>
+    /// 清除所有端点
+    /// </summary>
+    private void ClearEndpoints()
+    {
+        foreach (var endpoint in endpointInstances)
+        {
+            if (endpoint != null)
+            {
+                if (Application.isPlaying)
+                    Destroy(endpoint);
+                else
+                    DestroyImmediate(endpoint);
+            }
+        }
+        endpointInstances.Clear();
+    }
+
+    /// <summary>
+    /// 获取连接的对象数量
+    /// </summary>
+    public int GetConnectionCount()
+    {
+        return connectionMode == ConnectionMode.SceneObjects 
+            ? connectedObjects.Count 
+            : connectedUIObjects.Count;
+    }
+
+    #if UNITY_EDITOR
+    private void OnDrawGizmos()
+    {
+        if (!showInEditor || !Application.isEditor) return;
+        
+        // 在编辑器中预览连线
+        DrawEditorPreview();
+    }
+
+    private void DrawEditorPreview()
+    {
+        if (connectionMode == ConnectionMode.SceneObjects && connectedObjects.Count >= 2)
+        {
+            Handles.color = new Color(lineColor.r, lineColor.g, lineColor.b, 0.5f);
+            
+            for (int i = 0; i < connectedObjects.Count - 1; i++)
+            {
+                if (connectedObjects[i] != null && connectedObjects[i + 1] != null)
+                {
+                    Vector3 start = connectedObjects[i].position;
+                    Vector3 end = connectedObjects[i + 1].position;
+                    
+                    if (useCurve)
+                    {
+                        DrawCurvedLine(start, end);
+                    }
+                    else
+                    {
+                        Handles.DrawLine(start, end);
+                    }
+                    
+                    // 绘制端点
+                    if (showEndPoints)
+                    {
+                        Handles.SphereHandleCap(0, start, Quaternion.identity, 0.2f, EventType.Repaint);
+                        if (i == connectedObjects.Count - 2)
+                        {
+                            Handles.SphereHandleCap(0, end, Quaternion.identity, 0.2f, EventType.Repaint);
+                        }
+                    }
+                }
+            }
+        }
+        else if (connectionMode == ConnectionMode.UIObjects && connectedUIObjects.Count >= 2)
+        {
+            Handles.color = new Color(lineColor.r, lineColor.g, lineColor.b, 0.5f);
+            Camera canvasCamera = GetCanvasCamera();
+            
+            for (int i = 0; i < connectedUIObjects.Count - 1; i++)
+            {
+                if (connectedUIObjects[i] != null && connectedUIObjects[i + 1] != null)
+                {
+                    Vector3 start = GetUIPosition(connectedUIObjects[i], canvasCamera);
+                    Vector3 end = GetUIPosition(connectedUIObjects[i + 1], canvasCamera);
+                    
+                    if (useCurve)
+                    {
+                        DrawCurvedLine(start, end);
+                    }
+                    else
+                    {
+                        Handles.DrawLine(start, end);
+                    }
+                    
+                    // 绘制端点
+                    if (showEndPoints)
+                    {
+                        Handles.SphereHandleCap(0, start, Quaternion.identity, 0.2f, EventType.Repaint);
+                        if (i == connectedUIObjects.Count - 2)
+                        {
+                            Handles.SphereHandleCap(0, end, Quaternion.identity, 0.2f, EventType.Repaint);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void DrawCurvedLine(Vector3 start, Vector3 end)
+    {
+        Vector3 controlPoint = (start + end) * 0.5f + Vector3.up * curveHeight;
+        
+        for (int j = 0; j < lineSegments; j++)
+        {
+            float t1 = j / (float)lineSegments;
+            float t2 = (j + 1) / (float)lineSegments;
+            
+            Vector3 point1 = CalculateBezierPoint(start, controlPoint, end, t1);
+            Vector3 point2 = CalculateBezierPoint(start, controlPoint, end, t2);
+            
+            Handles.DrawLine(point1, point2);
+        }
+    }
+
+    private Vector3 CalculateBezierPoint(Vector3 p0, Vector3 p1, Vector3 p2, float t)
+    {
+        float u = 1 - t;
+        float tt = t * t;
+        float uu = u * u;
+        
+        Vector3 point = uu * p0;
+        point += 2 * u * t * p1;
+        point += tt * p2;
+        
+        return point;
+    }
+    #endif
+}
+
+#if UNITY_EDITOR
+[CustomEditor(typeof(DynamicLineConnector))]
+public class DynamicLineConnectorEditor : Editor
+{
+    private SerializedProperty connectionMode;
+    private SerializedProperty connectedObjects;
+    private SerializedProperty connectedUIObjects;
+    private SerializedProperty lineMaterial;
+    private SerializedProperty lineColor;
+    private SerializedProperty lineWidth;
+    private SerializedProperty lineSegments;
+    private SerializedProperty useCurve;
+    private SerializedProperty curveHeight;
+    private SerializedProperty showEndPoints;
+    private SerializedProperty startPointPrefab;
+    private SerializedProperty endPointPrefab;
+    private SerializedProperty updateInRealTime;
+    private SerializedProperty showInEditor;
+
+    private void OnEnable()
+    {
+        connectionMode = serializedObject.FindProperty("connectionMode");
+        connectedObjects = serializedObject.FindProperty("connectedObjects");
+        connectedUIObjects = serializedObject.FindProperty("connectedUIObjects");
+        lineMaterial = serializedObject.FindProperty("lineMaterial");
+        lineColor = serializedObject.FindProperty("lineColor");
+        lineWidth = serializedObject.FindProperty("lineWidth");
+        lineSegments = serializedObject.FindProperty("lineSegments");
+        useCurve = serializedObject.FindProperty("useCurve");
+        curveHeight = serializedObject.FindProperty("curveHeight");
+        showEndPoints = serializedObject.FindProperty("showEndPoints");
+        startPointPrefab = serializedObject.FindProperty("startPointPrefab");
+        endPointPrefab = serializedObject.FindProperty("endPointPrefab");
+        updateInRealTime = serializedObject.FindProperty("updateInRealTime");
+        showInEditor = serializedObject.FindProperty("showInEditor");
+    }
+
+    public override void OnInspectorGUI()
+    {
+        serializedObject.Update();
+
+        DynamicLineConnector connector = (DynamicLineConnector)target;
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("动态连线系统", EditorStyles.boldLabel);
+        EditorGUILayout.Space();
+
+        // 连接模式选择
+        EditorGUILayout.PropertyField(connectionMode);
+        EditorGUILayout.Space();
+
+        // 根据模式显示不同的对象列表
+        if (connectionMode.enumValueIndex == (int)ConnectionMode.SceneObjects)
+        {
+            EditorGUILayout.LabelField("场景物体连接", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(connectedObjects);
+            
+            // 拖拽区域
+            EditorGUILayout.Space();
+            GUILayout.Label("拖拽场景物体到这里:", EditorStyles.boldLabel);
+            Rect dropArea = GUILayoutUtility.GetRect(0f, 50f, GUILayout.ExpandWidth(true));
+            GUI.Box(dropArea, "拖拽场景物体到此区域");
+            
+            HandleDragAndDrop(dropArea, connector, false);
+        }
+        else
+        {
+            EditorGUILayout.LabelField("UI物体连接", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(connectedUIObjects);
+            
+            // 拖拽区域
+            EditorGUILayout.Space();
+            GUILayout.Label("拖拽UI物体到这里:", EditorStyles.boldLabel);
+            Rect dropArea = GUILayoutUtility.GetRect(0f, 50f, GUILayout.ExpandWidth(true));
+            GUI.Box(dropArea, "拖拽UI物体到此区域");
+            
+            HandleDragAndDrop(dropArea, connector, true);
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("线条设置", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(lineMaterial);
+        EditorGUILayout.PropertyField(lineColor);
+        EditorGUILayout.PropertyField(lineWidth);
+        EditorGUILayout.PropertyField(useCurve);
+        
+        if (useCurve.boolValue)
+        {
+            EditorGUILayout.PropertyField(lineSegments);
+            EditorGUILayout.PropertyField(curveHeight);
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("端点设置", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(showEndPoints);
+        
+        if (showEndPoints.boolValue)
+        {
+            EditorGUILayout.PropertyField(startPointPrefab);
+            EditorGUILayout.PropertyField(endPointPrefab);
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("其他设置", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(updateInRealTime);
+        EditorGUILayout.PropertyField(showInEditor);
+
+        EditorGUILayout.Space();
+
+        // 控制按钮
+        EditorGUILayout.BeginHorizontal();
+        if (GUILayout.Button("更新连线"))
+        {
+            connector.UpdateLines();
+        }
+        
+        if (GUILayout.Button("清空所有"))
+        {
+            connector.ClearAll();
+        }
+        EditorGUILayout.EndHorizontal();
+
+        EditorGUILayout.Space();
+        
+        // 显示当前连接数量
+        EditorGUILayout.HelpBox($"当前连接数量: {connector.GetConnectionCount()}", MessageType.Info);
+
+        serializedObject.ApplyModifiedProperties();
+        
+        // 如果属性改变，立即更新
+        if (GUI.changed)
+        {
+            connector.UpdateLines();
+        }
+    }
+
+    private void HandleDragAndDrop(Rect dropArea, DynamicLineConnector connector, bool isUI)
+    {
+        Event evt = Event.current;
+        
+        switch (evt.type)
+        {
+            case EventType.DragUpdated:
+            case EventType.DragPerform:
+                if (!dropArea.Contains(evt.mousePosition))
+                    return;
+
+                DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+
+                if (evt.type == EventType.DragPerform)
+                {
+                    DragAndDrop.AcceptDrag();
+
+                    foreach (Object draggedObject in DragAndDrop.objectReferences)
+                    {
+                        if (draggedObject is GameObject gameObject)
+                        {
+                            if (isUI)
+                            {
+                                RectTransform rectTransform = gameObject.GetComponent<RectTransform>();
+                                if (rectTransform != null)
+                                {
+                                    connector.AddUIObject(rectTransform);
+                                }
+                            }
+                            else
+                            {
+                                connector.AddObject(gameObject.transform);
+                            }
+                        }
+                    }
+                    
+                    // 更新UI
+                    EditorUtility.SetDirty(connector);
+                    connector.UpdateLines();
+                }
+                break;
+        }
+    }
+}
+#endif
