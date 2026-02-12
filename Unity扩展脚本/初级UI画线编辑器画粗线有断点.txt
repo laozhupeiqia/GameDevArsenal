@@ -1,0 +1,118 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class DrawLine : MaskableGraphic
+{
+    // 存储绘制过程中的点
+    private List<Vector2> points = new List<Vector2>();
+    public float lineWidth = 2f;  // 线条宽度
+    private RectTransform canvasRectTransform;
+
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+
+        // 获取 Canvas 的 RectTransform
+        canvasRectTransform = GetComponentInParent<Canvas>().GetComponent<RectTransform>();
+
+        // 确保 CanvasRenderer 组件存在
+        if (GetComponent<CanvasRenderer>() == null)
+        {
+            gameObject.AddComponent<CanvasRenderer>();
+        }
+    }
+
+    protected override void OnPopulateMesh(VertexHelper vh)
+    {
+        vh.Clear();  // 清空当前网格数据
+
+        // 如果没有足够的点，直接返回
+        if (points.Count < 2) return;
+
+        // 用于计算连续线段的前一个点
+        Vector2 prevEndPoint = points[0];  // 起始点
+
+        // 绘制线条
+        for (int i = 1; i < points.Count; i++)
+        {
+            Vector2 startPoint = prevEndPoint;  // 以前一个点作为当前线段的起始点
+            Vector2 endPoint = points[i];       // 当前点作为当前线段的终点
+
+            // 计算线段的方向
+            Vector2 direction = endPoint - startPoint;
+
+            // 计算垂直于线段的方向，用来绘制粗线条
+            Vector2 perpendicular = new Vector2(-direction.y, direction.x).normalized;
+
+            // 计算当前线段应该绘制多少条并行的线
+            int lineCount = Mathf.CeilToInt(lineWidth / 2f); // 根据线条宽度计算要绘制的线条数量
+            float offset = lineWidth / (2f * lineCount); // 每条线之间的间距
+
+            // 绘制多条线
+            for (int j = 0; j < lineCount; j++)
+            {
+                // 在每个间距上偏移
+                float offsetY = (j - (lineCount - 1) / 2f) * offset;
+
+                Vector2 p0 = startPoint + perpendicular * offsetY;
+                Vector2 p1 = startPoint - perpendicular * offsetY;
+                Vector2 p2 = endPoint + perpendicular * offsetY;
+                Vector2 p3 = endPoint - perpendicular * offsetY;
+
+                // 为每个顶点定义颜色和UV
+                Color32 color = this.color;
+
+                // 使用 AddVert 添加顶点，格式为：位置，颜色，UV
+                int index = vh.currentVertCount;
+                vh.AddVert(p0, color, new Vector2(0, 0));
+                vh.AddVert(p1, color, new Vector2(0, 1));
+                vh.AddVert(p2, color, new Vector2(1, 0));
+                vh.AddVert(p3, color, new Vector2(1, 1));
+
+                // 使用 AddTriangle 来构建线条的两个三角形
+                vh.AddTriangle(index, index + 1, index + 2);
+                vh.AddTriangle(index + 1, index + 3, index + 2);
+            }
+
+            // 更新 prevEndPoint 为当前线段的结束点
+            prevEndPoint = endPoint;
+        }
+    }
+
+    void Update()
+    {
+        // 获取鼠标当前的世界坐标
+        Vector2 mousePosition = Input.mousePosition;
+
+        // 将屏幕坐标转换为画布坐标
+        Vector2 localPoint;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRectTransform, mousePosition, null, out localPoint);
+
+        if (Input.GetMouseButton(0)) // 鼠标左键按下
+        {
+            // 如果当前没有线条，或者鼠标开始拖动时，我们就记录起始点
+            if (points.Count == 0 || Vector2.Distance(localPoint, points[points.Count - 1]) > 5f)
+            {
+                points.Add(localPoint); // 记录当前鼠标位置
+                SetVerticesDirty(); // 通知 Unity 更新顶点数据
+            }
+        }
+        else if (Input.GetMouseButtonUp(0)) // 鼠标松开
+        {
+            // 鼠标松开后停止绘制
+            if (points.Count > 0)
+            {
+                points.Add(localPoint);
+                SetVerticesDirty();
+            }
+        }
+    }
+
+    // 可选：用于清空已绘制的线条
+    public void ClearLine()
+    {
+        points.Clear();
+        SetVerticesDirty(); // 通知 Unity 清空顶点数据
+    }
+}
