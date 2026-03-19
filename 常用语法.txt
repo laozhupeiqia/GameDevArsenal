@@ -1,1 +1,2 @@
 限制用户输入范围Mathf.Clamp()
+关闭文本射线检测 EnumsText.raycastTarget = false;
