@@ -1,0 +1,94 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class Circularlist : MonoBehaviour
+{
+    public Button leftButton;
+    public Button rightButton;
+
+    public RectTransform content;
+    public List<RectTransform> items;
+
+    public float itemWidth = 200f;
+    public float duration = 0.2f; // 动画时间
+
+    private bool isMoving = false;
+
+    void Start()
+    {
+        leftButton.onClick.AddListener(MoveLeftClick);
+        rightButton.onClick.AddListener(MoveRightClick);
+    }
+
+    // 👉 点右（显示下一个）
+    void MoveRightClick()
+    {
+        if (isMoving) return;
+        StartCoroutine(MoveRight());
+    }
+
+    IEnumerator MoveRight()
+    {
+        isMoving = true;
+
+        Vector2 startPos = content.anchoredPosition;
+        Vector2 targetPos = startPos - new Vector2(itemWidth, 0);
+
+        float time = 0;
+        while (time < duration)
+        {
+            time += Time.deltaTime;
+            content.anchoredPosition = Vector2.Lerp(startPos, targetPos, time / duration);
+            yield return null;
+        }
+
+        // ⭐ 移动节点
+        RectTransform first = items[0];
+        first.SetAsLastSibling();
+        items.RemoveAt(0);
+        items.Add(first);
+
+        // ⭐ 位置复原（关键）
+        content.anchoredPosition = startPos;
+
+        isMoving = false;
+    }
+
+    // 👉 点左（显示上一个）
+    void MoveLeftClick()
+    {
+        if (isMoving) return;
+        StartCoroutine(MoveLeft());
+    }
+
+    IEnumerator MoveLeft()
+    {
+        isMoving = true;
+
+        // ⭐ 先移动节点
+        RectTransform last = items[items.Count - 1];
+        last.SetAsFirstSibling();
+        items.RemoveAt(items.Count - 1);
+        items.Insert(0, last);
+
+        // ⭐ 先偏移位置
+        Vector2 startPos = content.anchoredPosition - new Vector2(itemWidth, 0);
+        Vector2 targetPos = content.anchoredPosition;
+
+        content.anchoredPosition = startPos;
+
+        float time = 0;
+        while (time < duration)
+        {
+            time += Time.deltaTime;
+            content.anchoredPosition = Vector2.Lerp(startPos, targetPos, time / duration);
+            yield return null;
+        }
+
+        content.anchoredPosition = targetPos;
+
+        isMoving = false;
+    }
+}

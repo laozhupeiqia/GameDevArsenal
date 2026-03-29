@@ -1,0 +1,60 @@
+using UnityEngine;
+
+namespace Tools 
+{
+    public static class TransformExtension
+    {
+        /// <summary>
+        /// 删除所有子物体（运行时用）
+        /// </summary>
+        public static void ClearChildren(this Transform parent)
+        {
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                GameObject.Destroy(parent.GetChild(i).gameObject);
+            }
+        }
+        /// <summary>
+        /// 删除所有子物体（编辑器用）
+        /// </summary>
+        /// <param name="parent"></param>
+        /// <param name="immediate"></param>
+        public static void ClearChildren(this Transform parent, bool immediate)
+        {
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                if (immediate)
+                    GameObject.DestroyImmediate(parent.GetChild(i).gameObject);
+                else
+                    GameObject.Destroy(parent.GetChild(i).gameObject);
+            }
+        }
+        /// <summary>
+        /// 查找子物体
+        /// </summary>
+        /// <param name="parent"></param>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        public static Transform FindDeep(this Transform parent, string name)
+        {
+            foreach (Transform child in parent)
+            {
+                if (child.name == name)
+                    return child;
+
+                var result = child.FindDeep(name);
+                if (result != null)
+                    return result;
+            }
+            return null;
+        }
+
+        public static void ClearChildren(this Transform parent, float delay)
+        {
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                GameObject.Destroy(parent.GetChild(i).gameObject, delay);
+            }
+        }
+    }
+}

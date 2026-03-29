@@ -1,0 +1,66 @@
+using System.Collections.Generic;
+
+public class CircularLinkedList<T>
+{
+    public class Node
+    {
+        public T value;
+        public Node next;
+        public Node prev;
+
+        public Node(T value)
+        {
+            this.value = value;
+        }
+    }
+
+    private Node head;
+    private Node current;
+
+    // 初始化
+    public CircularLinkedList(List<T> data)
+    {
+        if (data == null || data.Count == 0)
+            return;
+
+        head = new Node(data[0]);
+        Node prevNode = head;
+
+        // 构建链表
+        for (int i = 1; i < data.Count; i++)
+        {
+            Node node = new Node(data[i]);
+
+            prevNode.next = node;
+            node.prev = prevNode;
+
+            prevNode = node;
+        }
+
+        // ⭐ 首尾相连（形成循环）
+        prevNode.next = head;
+        head.prev = prevNode;
+
+        current = head;
+    }
+
+    // 当前
+    public T Current()
+    {
+        return current.value;
+    }
+
+    // 下一个
+    public T Next()
+    {
+        current = current.next;
+        return current.value;
+    }
+
+    // ⭐ 上一个
+    public T Prev()
+    {
+        current = current.prev;
+        return current.value;
+    }
+}
