@@ -1,0 +1,147 @@
+namespace Vlctext
+{
+    partial class Form1
+    {
+        /// <summary>
+        ///  Required designer variable.
+        /// </summary>
+        private System.ComponentModel.IContainer components = null;
+
+        /// <summary>
+        ///  Clean up any resources being used.
+        /// </summary>
+        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region Windows Form Designer generated code
+
+        /// <summary>
+        ///  Required method for Designer support - do not modify
+        ///  the contents of this method with the code editor.
+        /// </summary>
+        private System.Windows.Forms.RadioButton radioUDP;
+        private System.Windows.Forms.RadioButton radioRTSP;
+        private System.Windows.Forms.Button btnPlay;
+        private System.Windows.Forms.Button btnStop;
+        private System.Windows.Forms.Label lblStatus;
+        private System.Windows.Forms.TextBox txtOutput;
+        private System.Windows.Forms.Panel dragPanel;
+
+        private System.Windows.Forms.TextBox txtPlayUrl;
+        private System.Windows.Forms.Button btnCopy;
+        private void InitializeComponent()
+        {
+            this.radioUDP = new RadioButton();
+            this.radioRTSP = new RadioButton();
+            this.btnPlay = new Button();
+            this.btnStop = new Button();
+            this.lblStatus = new Label();
+            this.txtOutput = new TextBox();
+            this.dragPanel = new Panel();
+            this.txtPlayUrl = new TextBox();
+            this.btnCopy = new Button();
+
+            this.SuspendLayout();
+
+            // ================= 协议选择 =================
+            GroupBox groupProtocol = new GroupBox();
+            groupProtocol.Text = "推流协议";
+            groupProtocol.Location = new Point(20, 10);
+            groupProtocol.Size = new Size(200, 60);
+
+            radioUDP.Text = "UDP";
+            radioUDP.Location = new Point(10, 25);
+            radioUDP.Checked = true;
+
+            radioRTSP.Text = "RTSP";
+            radioRTSP.Location = new Point(120, 25);
+
+            groupProtocol.Controls.Add(radioUDP);
+            groupProtocol.Controls.Add(radioRTSP);
+
+            // ================= 推流地址 =================
+            Label lblOutput = new Label();
+            lblOutput.Text = "输出地址：";
+            lblOutput.Location = new Point(240, 20);
+            lblOutput.AutoSize = true;
+
+            txtOutput.Location = new Point(320, 18);
+            txtOutput.Size = new Size(180, 25);
+            txtOutput.Text = "127.0.0.1:1234";
+
+            // ================= 按钮 =================
+            btnPlay.Text = "播放";
+            btnPlay.Location = new Point(520, 15);
+            btnPlay.Size = new Size(75, 30);
+            btnPlay.Click += BtnPlay_Click;
+
+            btnStop.Text = "停止";
+            btnStop.Location = new Point(610, 15);
+            btnStop.Size = new Size(75, 30);
+            btnStop.Click += BtnStop_Click;
+
+            // ================= 播放地址 =================
+            Label lblPlayUrl = new Label();
+            lblPlayUrl.Text = "播放地址：";
+            lblPlayUrl.Location = new Point(20, 80);
+            lblPlayUrl.AutoSize = true;
+
+            txtPlayUrl.Location = new Point(100, 75);
+            txtPlayUrl.Size = new Size(400, 25);
+            txtPlayUrl.ReadOnly = true;
+
+            btnCopy.Text = "复制";
+            btnCopy.Location = new Point(520, 73);
+            btnCopy.Size = new Size(75, 28);
+            btnCopy.Click += BtnCopy_Click;
+
+            // ================= 状态 =================
+            lblStatus.Text = "状态：未开始";
+            lblStatus.Location = new Point(20, 110);
+            lblStatus.AutoSize = true;
+
+            // ================= 拖拽区域 =================
+            dragPanel.Location = new Point(20, 140);
+            dragPanel.Size = new Size(740, 260);
+            dragPanel.BorderStyle = BorderStyle.FixedSingle;
+            dragPanel.AllowDrop = true;
+            dragPanel.DragEnter += DragPanel_DragEnter;
+            dragPanel.DragDrop += DragPanel_DragDrop;
+
+            Label dragHint = new Label();
+            dragHint.Text = "拖拽视频文件到这里";
+            dragHint.AutoSize = true;
+            dragHint.Location = new Point(280, 110);
+
+            dragPanel.Controls.Add(dragHint);
+
+            // ================= 窗体 =================
+            this.ClientSize = new Size(800, 420);
+            this.Text = "推流测试工具";
+
+            // 添加所有控件（注意顺序）
+            this.Controls.Add(groupProtocol);
+            this.Controls.Add(lblOutput);
+            this.Controls.Add(txtOutput);
+            this.Controls.Add(btnPlay);
+            this.Controls.Add(btnStop);
+            this.Controls.Add(lblPlayUrl);
+            this.Controls.Add(txtPlayUrl);
+            this.Controls.Add(btnCopy);
+            this.Controls.Add(lblStatus);
+            this.Controls.Add(dragPanel);
+
+            this.ResumeLayout(false);
+            this.PerformLayout();
+        }
+
+        #endregion
+    }
+}

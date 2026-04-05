@@ -1,0 +1,162 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+
+namespace Vlctext
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private string videoPath = "";
+        private Process? ffmpegProcess;
+        private Process? rtspServerProcess;
+
+        private void BtnStop_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (ffmpegProcess != null && !ffmpegProcess.HasExited)
+                    ffmpegProcess.Kill();
+
+                if (rtspServerProcess != null && !rtspServerProcess.HasExited)
+                    rtspServerProcess.Kill();
+
+                foreach (var p in Process.GetProcessesByName("ffmpeg"))
+                    p.Kill();
+
+                foreach (var p in Process.GetProcessesByName("mediamtx"))
+                    p.Kill();
+
+                lblStatus.Text = "推流已停止";
+            }
+            catch
+            {
+                lblStatus.Text = "停止失败";
+            }
+        }
+        string GetLocalIP()
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    return ip.ToString();
+            }
+            return "127.0.0.1";
+        }
+
+        private void DragPanel_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                e.Effect = DragDropEffects.Copy;
+        }
+
+        private void DragPanel_DragDrop(object sender, DragEventArgs e)
+        {
+            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
+
+            if (files.Length > 0)
+            {
+                videoPath = files[0];
+                lblStatus.Text = "已选择文件：" + videoPath;
+            }
+        }
+
+        private void BtnCopy_Click(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrEmpty(txtPlayUrl.Text))
+            {
+                Clipboard.SetText(txtPlayUrl.Text);
+                lblStatus.Text = "已复制播放地址";
+            }
+        }
+
+        private void BtnPlay_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(videoPath))
+            {
+                lblStatus.Text = "请先拖入视频文件";
+                return;
+            }
+
+            string ipPort = txtOutput.Text;
+            string[] parts = ipPort.Split(':');
+            string ip = parts[0];
+            string port = parts[1];
+
+            string protocol = radioUDP.Checked ? "udp" : "rtsp";
+
+            string ffmpegPath = Path.Combine(Application.StartupPath, "ffmpeg.exe");
+            string serverPath = Path.Combine(Application.StartupPath, "mediamtx.exe");
+
+            if (!File.Exists(ffmpegPath))
+            {
+                lblStatus.Text = "未找到 ffmpeg.exe";
+                return;
+            }
+
+            string args = "";
+            string playUrl = "";
+
+            // ================= UDP =================
+            if (protocol == "udp")
+            {
+                args = $"-stream_loop -1 -re -i \"{videoPath}\" -c:v libx264 -preset ultrafast -tune zerolatency -c:a aac -f mpegts udp://{ip}:{port}"; playUrl = $"udp://@{ip}:{port}";
+
+                txtPlayUrl.Text = playUrl;
+
+                ffmpegProcess = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/k \"\"{ffmpegPath}\" {args}\"",
+                    UseShellExecute = true
+                });
+
+                lblStatus.Text = "UDP推流中...";
+            }
+            // ================= RTSP =================
+            else
+            {
+                if (!File.Exists(serverPath))
+                {
+                    lblStatus.Text = "未找到 mediamtx.exe（RTSP服务器）";
+                    return;
+                }
+
+                // 👉 1️⃣ 启动 RTSP服务器
+                rtspServerProcess = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/k \"\"{serverPath}\"\"",
+                    UseShellExecute = true
+                });
+
+                // 👉 2️⃣ 等待服务器启动完成（可根据情况调整）
+                System.Threading.Thread.Sleep(1500);
+
+                string localIP = GetLocalIP();
+
+                args = $"-stream_loop -1 -re -i \"{videoPath}\" " +
+                       $"-c:v libx264 -preset ultrafast -tune zerolatency " +
+                       $"-c:a aac -f rtsp -rtsp_transport tcp " +
+                       $"rtsp://{localIP}:8554/stream";
+
+                playUrl = $"rtsp://{localIP}:8554/stream";
+
+                ffmpegProcess = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/k \"\"{ffmpegPath}\" {args}\"",
+                    UseShellExecute = true
+                });
+                txtPlayUrl.Text = playUrl;
+
+                lblStatus.Text = "RTSP服务已启动（可用VLC播放）";
+            }
+        }
+    }
+}
