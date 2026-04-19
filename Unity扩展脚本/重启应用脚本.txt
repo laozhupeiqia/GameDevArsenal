@@ -1,0 +1,66 @@
+using UnityEngine;
+using UnityEngine.UI;
+using System.Diagnostics;
+using System.IO;
+
+public class Restart : MonoBehaviour
+{
+    public Button restbutton;
+
+    // 最大等待时间（秒），防止旧进程异常挂起导致无限循环
+    public int maxWaitSeconds = 30;
+
+    void Start()
+    {
+        restbutton.onClick.AddListener(RestartGame);
+    }
+
+    void RestartGame()
+    {
+#if !UNITY_EDITOR
+        // 获取打包后 EXE 路径
+        string exePath = Application.dataPath;
+        if (exePath.EndsWith("_Data"))
+            exePath = exePath.Substring(0, exePath.Length - 5);
+
+        // 临时 bat 文件路径
+        string batPath = Path.Combine(Application.temporaryCachePath, "restart.bat");
+
+        // 批处理内容
+        string batContent = $@"
+@echo off
+set EXE={Path.GetFileName(exePath)}
+set MAX_WAIT={maxWaitSeconds}
+set COUNT=0
+
+:loop
+tasklist /fi ""imagename eq %EXE%"" | find /i ""%EXE%"" >nul
+if %errorlevel%==0 (
+    set /a COUNT+=1
+    if %COUNT% GEQ %MAX_WAIT% goto startExe
+    timeout /t 1 /nobreak >nul
+    goto loop
+)
+
+:startExe
+start """" ""{exePath}""
+del ""%~f0""
+";
+
+        // 写入 bat 文件
+        File.WriteAllText(batPath, batContent);
+
+        // 启动批处理并隐藏窗口
+        ProcessStartInfo psi = new ProcessStartInfo
+        {
+            FileName = batPath,
+            CreateNoWindow = true,
+            UseShellExecute = false
+        };
+        Process.Start(psi);
+
+        // 立即退出 Unity 程序
+        Application.Quit();
+#endif
+    }
+}
